@@ -1,0 +1,37 @@
+# Build artifacts
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# IDE and editor state
+.vs/
+.vscode/
+*.VC.db
+*.VC.opendb
+*.sln.DotSettings
+
+# Compiled objects and caches
+*.ipch
+*.obj
+*.pch
+*.pdb
+*.log
+*.tlog
+*.tmp
+
+# User-specific
+*.suo
+*.user
+*.userprefs
+*.rsuser
+
+# OS
+.DS_Store
+*.dSYM/
+
+# Unreal external actor/object caches
+Content/__ExternalActors__/
+Content/__ExternalObjects__/
+Content/Collections/
