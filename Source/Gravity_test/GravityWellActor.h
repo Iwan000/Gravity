@@ -6,6 +6,11 @@
 
 class USceneComponent;
 class USphereComponent;
+class UStaticMeshComponent;
+class UMaterialInterface;
+class UMaterialInstanceDynamic;
+class UNiagaraComponent;
+class UNiagaraSystem;
 class ACharacter;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogGravityWell, Log, All);
@@ -42,6 +47,12 @@ protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
     TObjectPtr<USphereComponent> InfluenceSphere;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+    TObjectPtr<UStaticMeshComponent> VisualizationMesh;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+    TObjectPtr<UNiagaraComponent> AccretionVfxComponent;
+
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GravityWell", meta = (ClampMin = "0.0"))
     float Strength = 3000000.f;
 
@@ -63,6 +74,35 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GravityWell", meta = (ClampMin = "0.005"))
     float TickInterval = 0.03f;
 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visualization")
+    bool bEnableVisualization = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visualization", meta = (EditCondition = "bEnableVisualization"))
+    TObjectPtr<UMaterialInterface> VisualizationMaterial;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visualization", meta = (EditCondition = "bEnableVisualization"))
+    TObjectPtr<UNiagaraSystem> AccretionNiagaraSystem;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visualization", meta = (EditCondition = "bEnableVisualization", ClampMin = "1.0"))
+    float VisualizationMeshReferenceRadius = 50.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visualization", meta = (EditCondition = "bEnableVisualization", ClampMin = "0.0"))
+    float PulseSpeed = 1.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visualization", meta = (EditCondition = "bEnableVisualization", ClampMin = "0.0"))
+    float PulseIntensity = 1.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visualization", meta = (EditCondition = "bEnableVisualization"))
+    FName RadiusParameterName = TEXT("InfluenceRadius");
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visualization", meta = (EditCondition = "bEnableVisualization"))
+    FName StrengthParameterName = TEXT("GravityStrength");
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Visualization", meta = (EditCondition = "bEnableVisualization"))
+    FName PulseParameterName = TEXT("PulsePhase");
+
+    virtual FVector ComputeAcceleration(const FVector& WellLocation, const FVector& TargetLocation) const;
+
 private:
     void UpdateSphereRadius();
     void StartGravityTimer();
@@ -72,9 +112,17 @@ private:
     FAffectedCharacterState* FindCharacterState(const TWeakObjectPtr<ACharacter>& CharacterPtr);
     void RemoveCharacterState(const TWeakObjectPtr<ACharacter>& CharacterPtr);
 
-    FVector ComputeAcceleration(const FVector& WellLocation, const FVector& TargetLocation) const;
+    void RefreshVisualizationAssets();
+    void UpdateVisualizationActivation();
+    void UpdateVisualizationScale();
+    void UpdateVisualizationParameters(float DeltaSeconds);
 
     FTimerHandle GravityTimerHandle;
     TSet<TWeakObjectPtr<ACharacter>> AffectedCharacters;
     TArray<FAffectedCharacterState> CharacterStates;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UMaterialInstanceDynamic> VisualizationMID;
+
+    float PulseAccumulator = 0.f;
 };

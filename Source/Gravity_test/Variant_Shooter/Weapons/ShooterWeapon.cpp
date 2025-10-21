@@ -172,6 +172,7 @@ void AShooterWeapon::FireProjectile(const FVector& TargetLocation)
 	SpawnParams.Instigator = PawnOwner;
 
 	AShooterProjectile* Projectile = GetWorld()->SpawnActor<AShooterProjectile>(ProjectileClass, ProjectileTransform, SpawnParams);
+	LastFiredProjectile = Projectile;
 
 	// play the firing montage
 	WeaponOwner->PlayFiringMontage(FiringMontage);

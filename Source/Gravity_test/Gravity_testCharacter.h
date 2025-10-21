@@ -31,6 +31,22 @@ class AGravity_testCharacter : public ACharacter
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* FirstPersonCameraComponent;
 
+	/** First person pistol mesh (only visible to owning player) */
+	UPROPERTY(VisibleAnywhere, BlueprintGetter = GetFirstPersonPistolMesh, Category="Weapons", meta = (AllowPrivateAccess = "true"))
+	USkeletalMeshComponent* FirstPersonPistolMesh;
+
+	/** Third person pistol mesh (hidden from owning player) */
+	UPROPERTY(VisibleAnywhere, BlueprintGetter = GetThirdPersonPistolMesh, Category="Weapons", meta = (AllowPrivateAccess = "true"))
+	USkeletalMeshComponent* ThirdPersonPistolMesh;
+
+	/** Socket used to attach the first person pistol */
+	UPROPERTY(EditDefaultsOnly, Category="Weapons")
+	FName FirstPersonPistolSocket = FName("GripPoint");
+
+	/** Socket used to attach the third person pistol */
+	UPROPERTY(EditDefaultsOnly, Category="Weapons")
+	FName ThirdPersonPistolSocket = FName("hand_r");
+
 protected:
 
 	/** Jump Input Action */
@@ -53,6 +69,9 @@ public:
 	AGravity_testCharacter();
 
 protected:
+
+	/** Handle component setup that depends on loaded assets */
+	virtual void BeginPlay() override;
 
 	/** Called from Input Actions for movement input */
 	void MoveInput(const FInputActionValue& Value);
@@ -90,5 +109,20 @@ public:
 	/** Returns first person camera component **/
 	UCameraComponent* GetFirstPersonCameraComponent() const { return FirstPersonCameraComponent; }
 
-};
+	/** Returns the first person pistol mesh */
+	UFUNCTION(BlueprintGetter)
+	USkeletalMeshComponent* GetFirstPersonPistolMesh() const { return FirstPersonPistolMesh; }
 
+	/** Returns the third person pistol mesh */
+	UFUNCTION(BlueprintGetter)
+	USkeletalMeshComponent* GetThirdPersonPistolMesh() const { return ThirdPersonPistolMesh; }
+
+	/** Returns the socket name used for the first person pistol */
+	UFUNCTION(BlueprintPure, Category="Weapons")
+	FName GetFirstPersonPistolSocketName() const { return FirstPersonPistolSocket; }
+
+	/** Returns the socket name used for the third person pistol */
+	UFUNCTION(BlueprintPure, Category="Weapons")
+	FName GetThirdPersonPistolSocketName() const { return ThirdPersonPistolSocket; }
+
+};

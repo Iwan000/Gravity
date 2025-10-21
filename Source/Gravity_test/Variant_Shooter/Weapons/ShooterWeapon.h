@@ -109,6 +109,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Perception")
 	FName ShotNoiseTag = FName("Shot");
 
+	/** Weak pointer to the last projectile spawned by this weapon */
+	TWeakObjectPtr<AShooterProjectile> LastFiredProjectile;
+
 public:	
 
 	/** Constructor */
@@ -137,10 +140,10 @@ public:
 	void DeactivateWeapon();
 
 	/** Start firing this weapon */
-	void StartFiring();
+	virtual void StartFiring();
 
 	/** Stop firing this weapon */
-	void StopFiring();
+	virtual void StopFiring();
 
 protected:
 
@@ -177,4 +180,7 @@ public:
 
 	/** Returns the current bullet count */
 	int32 GetBulletCount() const { return CurrentBullets; }
+
+	/** Returns the last projectile spawned by this weapon, if any */
+	AShooterProjectile* GetLastFiredProjectile() const { return LastFiredProjectile.Get(); }
 };

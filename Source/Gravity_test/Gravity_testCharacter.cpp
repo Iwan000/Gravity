@@ -5,9 +5,11 @@
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/CollisionProfile.h"
 #include "EnhancedInputComponent.h"
-#include "InputActionValue.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "InputActionValue.h"
+#include "UObject/ConstructorHelpers.h"
 #include "Gravity_test.h"
 
 AGravity_testCharacter::AGravity_testCharacter()
@@ -21,7 +23,7 @@ AGravity_testCharacter::AGravity_testCharacter()
 	FirstPersonMesh->SetupAttachment(GetMesh());
 	FirstPersonMesh->SetOnlyOwnerSee(true);
 	FirstPersonMesh->FirstPersonPrimitiveType = EFirstPersonPrimitiveType::FirstPerson;
-	FirstPersonMesh->SetCollisionProfileName(FName("NoCollision"));
+	FirstPersonMesh->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
 
 	// Create the Camera Component	
 	FirstPersonCameraComponent = CreateDefaultSubobject<UCameraComponent>(TEXT("First Person Camera"));
@@ -33,6 +35,34 @@ AGravity_testCharacter::AGravity_testCharacter()
 	FirstPersonCameraComponent->FirstPersonFieldOfView = 70.0f;
 	FirstPersonCameraComponent->FirstPersonScale = 0.6f;
 
+	// First person pistol mesh (only visible to the owning player)
+	FirstPersonPistolMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("First Person Pistol"));
+	FirstPersonPistolMesh->SetupAttachment(FirstPersonMesh);
+	FirstPersonPistolMesh->SetOnlyOwnerSee(true);
+	FirstPersonPistolMesh->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
+	FirstPersonPistolMesh->SetCanEverAffectNavigation(false);
+	FirstPersonPistolMesh->bCastDynamicShadow = false;
+	FirstPersonPistolMesh->CastShadow = false;
+
+	// Third person pistol mesh (hidden from the owning player but visible to others)
+	ThirdPersonPistolMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Third Person Pistol"));
+	ThirdPersonPistolMesh->SetupAttachment(GetMesh());
+	ThirdPersonPistolMesh->SetOwnerNoSee(true);
+	ThirdPersonPistolMesh->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
+	ThirdPersonPistolMesh->SetCanEverAffectNavigation(false);
+	ThirdPersonPistolMesh->bCastDynamicShadow = true;
+
+	static ConstructorHelpers::FObjectFinder<USkeletalMesh> PistolMeshFinder(TEXT("/Game/Weapons/Pistol/Meshes/SK_Pistol.SK_Pistol"));
+	if (PistolMeshFinder.Succeeded())
+	{
+		FirstPersonPistolMesh->SetSkeletalMesh(PistolMeshFinder.Object);
+		ThirdPersonPistolMesh->SetSkeletalMesh(PistolMeshFinder.Object);
+	}
+	else
+	{
+		UE_LOG(LogGravity_test, Warning, TEXT("First person pistol mesh asset not found. Update the path in AGravity_testCharacter."));
+	}
+
 	// configure the character comps
 	GetMesh()->SetOwnerNoSee(true);
 	GetMesh()->FirstPersonPrimitiveType = EFirstPersonPrimitiveType::WorldSpaceRepresentation;
@@ -42,6 +72,48 @@ AGravity_testCharacter::AGravity_testCharacter()
 	// Configure character movement
 	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
 	GetCharacterMovement()->AirControl = 0.5f;
+}
+
+void AGravity_testCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+
+	const FAttachmentTransformRules AttachRules(EAttachmentRule::SnapToTarget, true);
+
+	if (FirstPersonMesh && FirstPersonPistolMesh)
+	{
+		if (!FirstPersonPistolSocket.IsNone() && FirstPersonMesh->DoesSocketExist(FirstPersonPistolSocket))
+		{
+			FirstPersonPistolMesh->AttachToComponent(FirstPersonMesh, AttachRules, FirstPersonPistolSocket);
+		}
+		else
+		{
+			FirstPersonPistolMesh->AttachToComponent(FirstPersonMesh, AttachRules);
+			if (!FirstPersonPistolSocket.IsNone())
+			{
+				UE_LOG(LogGravity_test, Warning, TEXT("First person pistol socket '%s' not found on %s."), *FirstPersonPistolSocket.ToString(), *GetNameSafe(FirstPersonMesh));
+			}
+		}
+	}
+
+	if (USkeletalMeshComponent* ThirdPersonMesh = GetMesh())
+	{
+		if (ThirdPersonPistolMesh)
+		{
+			if (!ThirdPersonPistolSocket.IsNone() && ThirdPersonMesh->DoesSocketExist(ThirdPersonPistolSocket))
+			{
+				ThirdPersonPistolMesh->AttachToComponent(ThirdPersonMesh, AttachRules, ThirdPersonPistolSocket);
+			}
+			else
+			{
+				ThirdPersonPistolMesh->AttachToComponent(ThirdPersonMesh, AttachRules);
+				if (!ThirdPersonPistolSocket.IsNone())
+				{
+					UE_LOG(LogGravity_test, Warning, TEXT("Third person pistol socket '%s' not found on %s."), *ThirdPersonPistolSocket.ToString(), *GetNameSafe(ThirdPersonMesh));
+				}
+			}
+		}
+	}
 }
 
 void AGravity_testCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)

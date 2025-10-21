@@ -3,6 +3,7 @@
 #include "Components/SceneComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/PrimitiveComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/CollisionProfile.h"
 #include "Engine/EngineTypes.h"
 #include "Engine/OverlapResult.h"
@@ -14,6 +15,11 @@
 #include "CollisionShape.h"
 #include "WorldCollision.h"
 #include "Misc/Optional.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
+#include "UObject/ConstructorHelpers.h"
+#include "Engine/StaticMesh.h"
 
 namespace
 {
@@ -37,12 +43,37 @@ AGravityWellActor::AGravityWellActor()
     InfluenceSphere->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Overlap);
     InfluenceSphere->SetGenerateOverlapEvents(true);
     InfluenceSphere->bHiddenInGame = true;
+
+    VisualizationMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("VisualizationMesh"));
+    VisualizationMesh->SetupAttachment(SceneRoot);
+    VisualizationMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    VisualizationMesh->SetGenerateOverlapEvents(false);
+    VisualizationMesh->SetCastShadow(false);
+    VisualizationMesh->bHiddenInGame = true;
+    VisualizationMesh->SetCanEverAffectNavigation(false);
+    VisualizationMesh->SetCollisionProfileName(UCollisionProfile::NoCollision_ProfileName);
+
+    static ConstructorHelpers::FObjectFinder<UStaticMesh> SphereMesh(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+    if (SphereMesh.Succeeded())
+    {
+        VisualizationMesh->SetStaticMesh(SphereMesh.Object);
+    }
+
+    AccretionVfxComponent = CreateDefaultSubobject<UNiagaraComponent>(TEXT("AccretionVFX"));
+    AccretionVfxComponent->SetupAttachment(SceneRoot);
+    AccretionVfxComponent->SetAutoActivate(false);
+    AccretionVfxComponent->SetCanEverAffectNavigation(false);
 }
 
 void AGravityWellActor::OnConstruction(const FTransform& Transform)
 {
     Super::OnConstruction(Transform);
     UpdateSphereRadius();
+    PulseAccumulator = 0.f;
+    RefreshVisualizationAssets();
+    UpdateVisualizationActivation();
+    UpdateVisualizationScale();
+    UpdateVisualizationParameters(0.f);
 }
 
 void AGravityWellActor::BeginPlay()
@@ -50,10 +81,20 @@ void AGravityWellActor::BeginPlay()
     Super::BeginPlay();
     UpdateSphereRadius();
     StartGravityTimer();
+    PulseAccumulator = 0.f;
+    RefreshVisualizationAssets();
+    UpdateVisualizationActivation();
+    UpdateVisualizationScale();
+    UpdateVisualizationParameters(0.f);
 }
 
 void AGravityWellActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    if (AccretionVfxComponent)
+    {
+        AccretionVfxComponent->DeactivateImmediate();
+    }
+    VisualizationMID = nullptr;
     RestoreAllCharacters();
     Super::EndPlay(EndPlayReason);
 }
@@ -63,6 +104,11 @@ void AGravityWellActor::PostEditChangeProperty(FPropertyChangedEvent& PropertyCh
 {
     Super::PostEditChangeProperty(PropertyChangedEvent);
     UpdateSphereRadius();
+    PulseAccumulator = 0.f;
+    RefreshVisualizationAssets();
+    UpdateVisualizationActivation();
+    UpdateVisualizationScale();
+    UpdateVisualizationParameters(0.f);
 }
 #endif
 
@@ -94,6 +140,10 @@ void AGravityWellActor::ApplyGravityTick()
     const float DeltaSeconds = FMath::Max(GravityTimerHandle.IsValid()
         ? GetWorldTimerManager().GetTimerRate(GravityTimerHandle)
         : TickInterval, KINDA_SMALL_NUMBER);
+
+    UpdateVisualizationActivation();
+    UpdateVisualizationScale();
+    UpdateVisualizationParameters(DeltaSeconds);
 
     TSet<TWeakObjectPtr<ACharacter>> CurrentlyOverlappingCharacters;
     TArray<UPrimitiveComponent*> OverlappingComponents;
@@ -269,6 +319,144 @@ FVector AGravityWellActor::ComputeAcceleration(const FVector& WellLocation, cons
     const float AccelMagnitude = Strength / FMath::Max(ClampedRadius * ClampedRadius, 1.f);
     FVector Accel = Direction * AccelMagnitude;
     return Accel.GetClampedToMaxSize(MaxAccel);
+}
+
+void AGravityWellActor::RefreshVisualizationAssets()
+{
+    if (VisualizationMesh)
+    {
+        if (bEnableVisualization && VisualizationMaterial)
+        {
+            VisualizationMesh->SetMaterial(0, VisualizationMaterial);
+        }
+
+        if (UMaterialInterface* ActiveMaterial = VisualizationMesh->GetMaterial(0))
+        {
+            VisualizationMID = VisualizationMesh->CreateDynamicMaterialInstance(0, ActiveMaterial);
+        }
+        else
+        {
+            VisualizationMID = nullptr;
+        }
+    }
+
+    if (AccretionVfxComponent)
+    {
+        if (AccretionNiagaraSystem)
+        {
+            const UNiagaraSystem* CurrentSystem = AccretionVfxComponent->GetAsset();
+            if (CurrentSystem != AccretionNiagaraSystem)
+            {
+                AccretionVfxComponent->SetAsset(AccretionNiagaraSystem);
+            }
+        }
+    }
+}
+
+void AGravityWellActor::UpdateVisualizationActivation()
+{
+    const bool bShouldShow = bEnableVisualization && (VisualizationMesh != nullptr);
+
+    if (VisualizationMesh)
+    {
+        VisualizationMesh->SetHiddenInGame(!bShouldShow);
+        VisualizationMesh->SetVisibility(bShouldShow, true);
+    }
+
+    if (AccretionVfxComponent)
+    {
+        if (bEnableVisualization && AccretionNiagaraSystem)
+        {
+            if (!AccretionVfxComponent->IsActive())
+            {
+                AccretionVfxComponent->Activate();
+            }
+        }
+        else
+        {
+            AccretionVfxComponent->DeactivateImmediate();
+        }
+    }
+}
+
+void AGravityWellActor::UpdateVisualizationScale()
+{
+    if (!VisualizationMesh || VisualizationMeshReferenceRadius <= KINDA_SMALL_NUMBER)
+    {
+        return;
+    }
+
+    const float TargetScale = MaxRadius / VisualizationMeshReferenceRadius;
+    VisualizationMesh->SetRelativeScale3D(FVector(TargetScale));
+
+    if (AccretionVfxComponent)
+    {
+        AccretionVfxComponent->SetRelativeScale3D(FVector(TargetScale));
+    }
+}
+
+void AGravityWellActor::UpdateVisualizationParameters(float DeltaSeconds)
+{
+    if (!bEnableVisualization)
+    {
+        if (AccretionVfxComponent && AccretionVfxComponent->IsActive())
+        {
+            AccretionVfxComponent->DeactivateImmediate();
+        }
+        return;
+    }
+
+    if (VisualizationMID)
+    {
+        if (!RadiusParameterName.IsNone())
+        {
+            VisualizationMID->SetScalarParameterValue(RadiusParameterName, MaxRadius);
+        }
+
+        if (!StrengthParameterName.IsNone())
+        {
+            VisualizationMID->SetScalarParameterValue(StrengthParameterName, Strength);
+        }
+
+        if (!PulseParameterName.IsNone())
+        {
+            const float SafeSpeed = FMath::Max(PulseSpeed, 0.f);
+            PulseAccumulator += DeltaSeconds * SafeSpeed;
+            if (PulseAccumulator > 1000.f)
+            {
+                PulseAccumulator = FMath::Fmod(PulseAccumulator, 1.f);
+            }
+            const float Phase = (SafeSpeed <= KINDA_SMALL_NUMBER)
+                ? 0.f
+                : FMath::Fmod(PulseAccumulator, 1.f);
+            VisualizationMID->SetScalarParameterValue(PulseParameterName, Phase * PulseIntensity);
+        }
+    }
+
+    if (AccretionVfxComponent)
+    {
+        if (AccretionNiagaraSystem)
+        {
+            if (!RadiusParameterName.IsNone())
+            {
+                AccretionVfxComponent->SetFloatParameter(RadiusParameterName, MaxRadius);
+            }
+            if (!StrengthParameterName.IsNone())
+            {
+                AccretionVfxComponent->SetFloatParameter(StrengthParameterName, Strength);
+            }
+            if (!PulseParameterName.IsNone())
+            {
+                const float PulseValue = PulseIntensity;
+                AccretionVfxComponent->SetFloatParameter(PulseParameterName, PulseValue);
+            }
+        }
+
+            if (!AccretionVfxComponent->IsActive() && AccretionNiagaraSystem)
+            {
+                AccretionVfxComponent->Activate();
+            }
+        }
 }
 
 FAffectedCharacterState* AGravityWellActor::FindCharacterState(const TWeakObjectPtr<ACharacter>& CharacterPtr)

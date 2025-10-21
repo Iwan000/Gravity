@@ -18,7 +18,9 @@ UCLASS(abstract)
 class GRAVITY_TEST_API AShooterProjectile : public AActor
 {
 	GENERATED_BODY()
-	
+
+protected:
+
 	/** Provides collision detection for the projectile */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	USphereComponent* CollisionComponent;
@@ -26,8 +28,6 @@ class GRAVITY_TEST_API AShooterProjectile : public AActor
 	/** Handles movement for the projectile */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UProjectileMovementComponent* ProjectileMovement;
-
-protected:
 
 	/** Loudness of the AI perception noise done by this projectile on hit */
 	UPROPERTY(EditAnywhere, Category="Projectile|Noise", meta = (ClampMin = 0, ClampMax = 100))
