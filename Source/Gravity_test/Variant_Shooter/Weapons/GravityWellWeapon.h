@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ShooterWeapon.h"
+#include <cfloat>
 #include "GravityWellWeapon.generated.h"
 
 class AGravityWellProjectile;
@@ -18,26 +19,45 @@ public:
 
 	virtual void StartFiring() override;
 	virtual void StopFiring() override;
+	virtual void StartSecondaryFire() override;
+	virtual void StopSecondaryFire() override;
 
 protected:
-	virtual void FireProjectile(const FVector& TargetLocation) override;
+	virtual void BeginPlay() override;
 
 private:
-	void BindToProjectile(AGravityWellProjectile* Projectile);
+	void HandleTriggerPressed(bool bIsBlackHole);
 
-	void PromotePendingIfActivated();
+	void PromotePendingIfActivated(bool bIsBlackHole);
 
-	void ClearProjectileReferences(AGravityWellProjectile* Projectile);
+	AGravityWellProjectile* SpawnGravityProjectile(TSubclassOf<AGravityWellProjectile> ProjectileClass, bool bIsBlackHole);
+
+	void BindProjectileDelegates(AGravityWellProjectile* Projectile, bool bIsBlackHole);
+	void ClearProjectilePointers(AGravityWellProjectile* Projectile, bool bIsBlackHole);
 
 	UFUNCTION()
-	void OnTrackedProjectileDestroyed(AActor* DestroyedActor);
+	void OnBlackProjectileDestroyed(AActor* DestroyedActor);
 
-	void HandleProjectileActivated(AGravityWellProjectile* Projectile);
-	void HandleProjectileDeactivated(AGravityWellProjectile* Projectile);
+	UFUNCTION()
+	void OnWhiteProjectileDestroyed(AActor* DestroyedActor);
 
-	/** Projectile currently travelling and waiting for activation. */
-	TWeakObjectPtr<AGravityWellProjectile> PendingProjectile;
+	void HandleBlackProjectileActivated(AGravityWellProjectile* Projectile);
+	void HandleBlackProjectileDeactivated(AGravityWellProjectile* Projectile);
+	void HandleWhiteProjectileActivated(AGravityWellProjectile* Projectile);
+	void HandleWhiteProjectileDeactivated(AGravityWellProjectile* Projectile);
 
-	/** Projectile that has already converted into an active gravity well. */
-	TWeakObjectPtr<AGravityWellProjectile> ActiveProjectile;
+	UPROPERTY(EditAnywhere, Category="Gravity Well")
+	TSubclassOf<AGravityWellProjectile> BlackHoleProjectileClass;
+
+	UPROPERTY(EditAnywhere, Category="Gravity Well")
+	TSubclassOf<AGravityWellProjectile> WhiteHoleProjectileClass;
+
+	TWeakObjectPtr<AGravityWellProjectile> PendingBlackProjectile;
+	TWeakObjectPtr<AGravityWellProjectile> ActiveBlackProjectile;
+
+	TWeakObjectPtr<AGravityWellProjectile> PendingWhiteProjectile;
+	TWeakObjectPtr<AGravityWellProjectile> ActiveWhiteProjectile;
+
+	float LastBlackShotTime = -FLT_MAX;
+	float LastWhiteShotTime = -FLT_MAX;
 };

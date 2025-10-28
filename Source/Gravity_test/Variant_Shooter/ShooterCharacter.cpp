@@ -53,6 +53,12 @@ void AShooterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started, this, &AShooterCharacter::DoStartFiring);
 		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Completed, this, &AShooterCharacter::DoStopFiring);
 
+		if (SecondaryFireAction)
+		{
+			EnhancedInputComponent->BindAction(SecondaryFireAction, ETriggerEvent::Started, this, &AShooterCharacter::DoStartSecondaryFiring);
+			EnhancedInputComponent->BindAction(SecondaryFireAction, ETriggerEvent::Completed, this, &AShooterCharacter::DoStopSecondaryFiring);
+		}
+
 		// Switch weapon
 		EnhancedInputComponent->BindAction(SwitchWeaponAction, ETriggerEvent::Triggered, this, &AShooterCharacter::DoSwitchWeapon);
 	}
@@ -97,6 +103,22 @@ void AShooterCharacter::DoStopFiring()
 	if (CurrentWeapon)
 	{
 		CurrentWeapon->StopFiring();
+	}
+}
+
+void AShooterCharacter::DoStartSecondaryFiring()
+{
+	if (CurrentWeapon)
+	{
+		CurrentWeapon->StartSecondaryFire();
+	}
+}
+
+void AShooterCharacter::DoStopSecondaryFiring()
+{
+	if (CurrentWeapon)
+	{
+		CurrentWeapon->StopSecondaryFire();
 	}
 }
 

@@ -145,6 +145,12 @@ public:
 	/** Stop firing this weapon */
 	virtual void StopFiring();
 
+	/** Start secondary fire (e.g. alternate trigger) */
+	virtual void StartSecondaryFire();
+
+	/** Stop secondary fire (e.g. alternate trigger) */
+	virtual void StopSecondaryFire();
+
 protected:
 
 	/** Fire the weapon */
@@ -155,6 +161,9 @@ protected:
 
 	/** Fire a projectile towards the target location */
 	virtual void FireProjectile(const FVector& TargetLocation);
+
+	/** Spawn a projectile of the provided class towards the target location */
+	AShooterProjectile* SpawnProjectileOfClass(const FVector& TargetLocation, TSubclassOf<AShooterProjectile> InProjectileClass);
 
 	/** Calculates the spawn transform for projectiles shot by this weapon */
 	FTransform CalculateProjectileSpawnTransform(const FVector& TargetLocation) const;

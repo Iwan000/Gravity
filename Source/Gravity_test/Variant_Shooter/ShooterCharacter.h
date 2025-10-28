@@ -35,6 +35,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category ="Input")
 	UInputAction* FireAction;
 
+	/** Alternate fire input action */
+	UPROPERTY(EditAnywhere, Category ="Input")
+	UInputAction* SecondaryFireAction;
+
 	/** Switch weapon input action */
 	UPROPERTY(EditAnywhere, Category ="Input")
 	UInputAction* SwitchWeaponAction;
@@ -111,6 +115,14 @@ public:
 	/** Handles stop firing input */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	void DoStopFiring();
+
+	/** Handles start secondary firing input */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoStartSecondaryFiring();
+
+	/** Handles stop secondary firing input */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void DoStopSecondaryFiring();
 
 	/** Handles switch weapon input */
 	UFUNCTION(BlueprintCallable, Category="Input")
