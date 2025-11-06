@@ -14,6 +14,15 @@ AGravityWellProjectile::AGravityWellProjectile()
 	bExplodeOnHit = false;
 	DeferredDestructionTime = 0.0f;
 	GravityWellClass = AGravityWellActor::StaticClass();
+
+	if (ProjectileMovement)
+	{
+		ProjectileMovement->InitialSpeed = 1200.0f;
+		ProjectileMovement->MaxSpeed = 1200.0f;
+		ProjectileMovement->ProjectileGravityScale = 0.0f;
+		ProjectileMovement->bIsHomingProjectile = false;
+		ProjectileMovement->bRotationFollowsVelocity = true;
+	}
 }
 
 void AGravityWellProjectile::EndPlay(EEndPlayReason::Type EndPlayReason)

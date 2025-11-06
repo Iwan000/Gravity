@@ -35,3 +35,9 @@ Saved/
 Content/__ExternalActors__/
 Content/__ExternalObjects__/
 Content/Collections/
+*.zip
+*.7z
+*.rar
+*.tar.gz
+*.tar
+*.tgz
