@@ -48,18 +48,49 @@ void AGravityWellWeapon::HandleTriggerPressed(bool bIsBlackHole)
 	TWeakObjectPtr<AGravityWellProjectile>& PendingRef = bIsBlackHole ? PendingBlackProjectile : PendingWhiteProjectile;
 	const TSubclassOf<AGravityWellProjectile> ProjectileClassToUse = bIsBlackHole ? BlackHoleProjectileClass : WhiteHoleProjectileClass;
 
-	if (AGravityWellProjectile* Active = ActiveRef.Get())
+	if (bIsBlackHole)
 	{
-		Active->DeactivateBlackHole();
-		return;
-	}
+		// Left click: Bullet -> Black Hole -> White Hole -> Off
+		if (AGravityWellProjectile* Active = ActiveRef.Get())
+		{
+			if (!Active->IsWhiteHoleActive())
+			{
+				// Transform existing black hole into a white hole.
+				Active->TransformToWhiteHole();
+			}
+			else
+			{
+				// White hole is active; next click removes it.
+				Active->DeactivateBlackHole();
+			}
+			return;
+		}
 
-	if (AGravityWellProjectile* Pending = PendingRef.Get())
+		if (AGravityWellProjectile* Pending = PendingRef.Get())
+		{
+			// Bullet is in flight; convert it into a black hole.
+			Pending->ActivateBlackHole();
+			ActiveRef = Pending;
+			PendingRef.Reset();
+			return;
+		}
+	}
+	else
 	{
-		Pending->ActivateBlackHole();
-		ActiveRef = Pending;
-		PendingRef.Reset();
-		return;
+		// Right click: Bullet -> White Hole -> Off (existing behaviour).
+		if (AGravityWellProjectile* Active = ActiveRef.Get())
+		{
+			Active->DeactivateBlackHole();
+			return;
+		}
+
+		if (AGravityWellProjectile* Pending = PendingRef.Get())
+		{
+			Pending->ActivateBlackHole();
+			ActiveRef = Pending;
+			PendingRef.Reset();
+			return;
+		}
 	}
 
 	if (!ProjectileClassToUse)

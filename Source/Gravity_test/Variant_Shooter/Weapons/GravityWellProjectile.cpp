@@ -1,6 +1,7 @@
 #include "GravityWellProjectile.h"
 
 #include "GravityWellActor.h"
+#include "WhiteHoleActor.h"
 #include "Components/SphereComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Engine/World.h"
@@ -14,6 +15,7 @@ AGravityWellProjectile::AGravityWellProjectile()
 	bExplodeOnHit = false;
 	DeferredDestructionTime = 0.0f;
 	GravityWellClass = AGravityWellActor::StaticClass();
+	WhiteHoleClass = AWhiteHoleActor::StaticClass();
 
 	if (ProjectileMovement)
 	{
@@ -29,9 +31,10 @@ void AGravityWellProjectile::EndPlay(EEndPlayReason::Type EndPlayReason)
 {
 	if (bBlackHoleActive)
 	{
+		bBlackHoleActive = false;
+		bIsWhiteHole = false;
 		OnBlackHoleDeactivated.Broadcast(this);
 		BP_OnBlackHoleDeactivated();
-		bBlackHoleActive = false;
 	}
 
 	DestroyGravityWell();
@@ -67,6 +70,7 @@ void AGravityWellProjectile::ActivateBlackHole()
 	}
 
 	bBlackHoleActive = true;
+	bIsWhiteHole = false;
 	bHit = true;
 
 	// Stop any further movement or collision.
@@ -98,6 +102,7 @@ void AGravityWellProjectile::DeactivateBlackHole()
 	}
 
 	bBlackHoleActive = false;
+	bIsWhiteHole = false;
 
 	OnBlackHoleDeactivated.Broadcast(this);
 	BP_OnBlackHoleDeactivated();
@@ -107,6 +112,41 @@ void AGravityWellProjectile::DeactivateBlackHole()
 	if (bDestroyProjectileWithWell)
 	{
 		Destroy();
+	}
+}
+
+void AGravityWellProjectile::TransformToWhiteHole()
+{
+	if (!bBlackHoleActive || bIsWhiteHole)
+	{
+		return;
+	}
+
+	DestroyGravityWell();
+
+	if (!WhiteHoleClass)
+	{
+		return;
+	}
+
+	if (!ensure(GetWorld()))
+	{
+		return;
+	}
+
+	const FTransform SpawnTransform = FTransform(GetActorRotation(), GetActorLocation() + WellSpawnOffset);
+
+	FActorSpawnParameters SpawnParams;
+	SpawnParams.Owner = this;
+	SpawnParams.Instigator = GetInstigator();
+	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	if (AGravityWellActor* Well = GetWorld()->SpawnActor<AGravityWellActor>(WhiteHoleClass, SpawnTransform, SpawnParams))
+	{
+		ActiveWell = Well;
+		Well->AttachToActor(this, FAttachmentTransformRules::KeepWorldTransform);
+		Well->OnDestroyed.AddDynamic(this, &AGravityWellProjectile::HandleWellDestroyed);
+		bIsWhiteHole = true;
 	}
 }
 
@@ -152,11 +192,11 @@ void AGravityWellProjectile::DestroyGravityWell()
 }
 
 void AGravityWellProjectile::HandleWellDestroyed(AActor* DestroyedActor)
-{
-	if (ActiveWell.Get() != DestroyedActor)
 	{
-		return;
-	}
+		if (ActiveWell.Get() != DestroyedActor)
+		{
+			return;
+		}
 
 	if (AGravityWellActor* Well = ActiveWell.Get())
 	{
@@ -166,12 +206,13 @@ void AGravityWellProjectile::HandleWellDestroyed(AActor* DestroyedActor)
 		}
 	}
 
-	ActiveWell.Reset();
+		ActiveWell.Reset();
 
-	if (bBlackHoleActive)
-	{
-		bBlackHoleActive = false;
-		OnBlackHoleDeactivated.Broadcast(this);
-		BP_OnBlackHoleDeactivated();
+		if (bBlackHoleActive)
+		{
+			bBlackHoleActive = false;
+			bIsWhiteHole = false;
+			OnBlackHoleDeactivated.Broadcast(this);
+			BP_OnBlackHoleDeactivated();
+		}
 	}
-}

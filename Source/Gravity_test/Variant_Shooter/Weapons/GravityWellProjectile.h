@@ -26,13 +26,21 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Gravity Well")
 	void ActivateBlackHole();
 
+	/** Transform an existing black hole into a white hole at the same location. */
+	UFUNCTION(BlueprintCallable, Category="Gravity Well")
+	void TransformToWhiteHole();
+
 	/** Removes the spawned gravity well and destroys this projectile. */
 	UFUNCTION(BlueprintCallable, Category="Gravity Well")
 	void DeactivateBlackHole();
 
-	/** Returns whether the projectile is currently acting as a gravity well. */
+	/** Returns whether the projectile currently has any gravity well active. */
 	UFUNCTION(BlueprintPure, Category="Gravity Well")
 	bool IsBlackHoleActive() const { return bBlackHoleActive; }
+
+	/** Returns true if the active well is currently a white hole. */
+	UFUNCTION(BlueprintPure, Category="Gravity Well")
+	bool IsWhiteHoleActive() const { return bBlackHoleActive && bIsWhiteHole; }
 
 	/** Broadcast when the projectile successfully activates the gravity well. */
 	FGravityWellProjectileActivatedSignature OnBlackHoleActivated;
@@ -41,9 +49,13 @@ public:
 	FGravityWellProjectileDeactivatedSignature OnBlackHoleDeactivated;
 
 protected:
-	/** Class of gravity well actor to spawn on activation. */
+	/** Class of gravity well actor to spawn on first activation (black hole). */
 	UPROPERTY(EditAnywhere, Category="Gravity Well")
 	TSubclassOf<AGravityWellActor> GravityWellClass;
+
+	/** Class of gravity well actor to spawn when transforming into a white hole. */
+	UPROPERTY(EditAnywhere, Category="Gravity Well")
+	TSubclassOf<AGravityWellActor> WhiteHoleClass;
 
 	/** Optional offset applied when spawning the gravity well actor. */
 	UPROPERTY(EditAnywhere, Category="Gravity Well")
@@ -68,8 +80,11 @@ private:
 	UFUNCTION()
 	void HandleWellDestroyed(AActor* DestroyedActor);
 
-	/** Tracks whether the projectile has already become a gravity well. */
+	/** Tracks whether the projectile currently has any gravity well active. */
 	bool bBlackHoleActive = false;
+
+	/** True if the current well is a white hole rather than a black hole. */
+	bool bIsWhiteHole = false;
 
 	/** Pointer to the spawned gravity well actor, if any. */
 	TWeakObjectPtr<AGravityWellActor> ActiveWell;
