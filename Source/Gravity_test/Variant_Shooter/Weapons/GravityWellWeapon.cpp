@@ -1,29 +1,23 @@
 #include "GravityWellWeapon.h"
 
 #include "GravityWellProjectile.h"
-#include "WhiteHoleProjectile.h"
 
 AGravityWellWeapon::AGravityWellWeapon()
 {
 	PrimaryActorTick.bCanEverTick = false;
 	BlackHoleProjectileClass = AGravityWellProjectile::StaticClass();
-	WhiteHoleProjectileClass = AWhiteHoleProjectile::StaticClass();
 }
 
 void AGravityWellWeapon::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// Ensure the base projectile class defaults to the black hole variant for legacy logic.
-	if (BlackHoleProjectileClass)
-	{
-		ProjectileClass = BlackHoleProjectileClass;
-	}
+	ProjectileClass = BlackHoleProjectileClass;
 }
 
 void AGravityWellWeapon::StartFiring()
 {
-	HandleTriggerPressed(true);
+	HandlePrimaryFire();
 }
 
 void AGravityWellWeapon::StopFiring()
@@ -33,85 +27,39 @@ void AGravityWellWeapon::StopFiring()
 
 void AGravityWellWeapon::StartSecondaryFire()
 {
-	HandleTriggerPressed(false);
+	HandleSecondaryFire();
 }
 
 void AGravityWellWeapon::StopSecondaryFire()
 {
 }
 
-void AGravityWellWeapon::HandleTriggerPressed(bool bIsBlackHole)
+void AGravityWellWeapon::HandlePrimaryFire()
 {
-	PromotePendingIfActivated(bIsBlackHole);
+	const bool bHadFlyingProjectile = FlyingProjectile.IsValid();
 
-	TWeakObjectPtr<AGravityWellProjectile>& ActiveRef = bIsBlackHole ? ActiveBlackProjectile : ActiveWhiteProjectile;
-	TWeakObjectPtr<AGravityWellProjectile>& PendingRef = bIsBlackHole ? PendingBlackProjectile : PendingWhiteProjectile;
-	const TSubclassOf<AGravityWellProjectile> ProjectileClassToUse = bIsBlackHole ? BlackHoleProjectileClass : WhiteHoleProjectileClass;
-
-	if (bIsBlackHole)
+	if (AGravityWellProjectile* Existing = FlyingProjectile.Get())
 	{
-		// Left click: Bullet -> Black Hole -> White Hole -> Off
-		if (AGravityWellProjectile* Active = ActiveRef.Get())
-		{
-			if (!Active->IsWhiteHoleActive())
-			{
-				// Transform existing black hole into a white hole.
-				Active->TransformToWhiteHole();
-			}
-			else
-			{
-				// White hole is active; next click removes it.
-				Active->DeactivateBlackHole();
-			}
-			return;
-		}
-
-		if (AGravityWellProjectile* Pending = PendingRef.Get())
-		{
-			// Bullet is in flight; convert it into a black hole.
-			Pending->ActivateBlackHole();
-			ActiveRef = Pending;
-			PendingRef.Reset();
-			return;
-		}
-	}
-	else
-	{
-		// Right click: Bullet -> White Hole -> Off (existing behaviour).
-		if (AGravityWellProjectile* Active = ActiveRef.Get())
-		{
-			Active->DeactivateBlackHole();
-			return;
-		}
-
-		if (AGravityWellProjectile* Pending = PendingRef.Get())
-		{
-			Pending->ActivateBlackHole();
-			ActiveRef = Pending;
-			PendingRef.Reset();
-			return;
-		}
+		Existing->Destroy();
+		FlyingProjectile.Reset();
 	}
 
-	if (!ProjectileClassToUse)
+	if (!BlackHoleProjectileClass)
 	{
 		return;
 	}
 
 	const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
-	float& LastShotRef = bIsBlackHole ? LastBlackShotTime : LastWhiteShotTime;
-	if (CurrentTime - LastShotRef < RefireRate)
+	if (!bHadFlyingProjectile && CurrentTime - LastShotTime < RefireRate)
 	{
 		return;
 	}
 
-	if (AGravityWellProjectile* NewProjectile = SpawnGravityProjectile(ProjectileClassToUse, bIsBlackHole))
+	if (AGravityWellProjectile* NewProjectile = SpawnGravityProjectile())
 	{
-		PendingRef = NewProjectile;
-		ActiveRef.Reset();
-
+		FlyingProjectile = NewProjectile;
+		LastShotTime = CurrentTime;
 		TimeOfLastShot = CurrentTime;
-		LastShotRef = CurrentTime;
 
 		if (PawnOwner)
 		{
@@ -120,132 +68,115 @@ void AGravityWellWeapon::HandleTriggerPressed(bool bIsBlackHole)
 	}
 }
 
-void AGravityWellWeapon::PromotePendingIfActivated(bool bIsBlackHole)
+void AGravityWellWeapon::HandleSecondaryFire()
 {
-	TWeakObjectPtr<AGravityWellProjectile>& ActiveRef = bIsBlackHole ? ActiveBlackProjectile : ActiveWhiteProjectile;
-	TWeakObjectPtr<AGravityWellProjectile>& PendingRef = bIsBlackHole ? PendingBlackProjectile : PendingWhiteProjectile;
-
-	if (ActiveRef.IsValid())
+	if (AGravityWellProjectile* Flying = FlyingProjectile.Get())
 	{
+		ActivateFlyingProjectile();
 		return;
 	}
 
-	if (AGravityWellProjectile* Pending = PendingRef.Get())
+	if (AGravityWellProjectile* ActiveHole = ActiveHoleProjectile.Get())
 	{
-		if (Pending->IsBlackHoleActive())
+		if (!ActiveHole->IsBlackHoleActive())
 		{
-			ActiveRef = Pending;
-			PendingRef.Reset();
+			ActiveHoleProjectile.Reset();
+			return;
+		}
+
+		if (!ActiveHole->IsWhiteHoleActive())
+		{
+			ActiveHole->TransformToWhiteHole();
+		}
+		else
+		{
+			ActiveHole->DeactivateBlackHole();
 		}
 	}
 }
 
-AGravityWellProjectile* AGravityWellWeapon::SpawnGravityProjectile(TSubclassOf<AGravityWellProjectile> ProjectileClassToUse, bool bIsBlackHole)
+void AGravityWellWeapon::ActivateFlyingProjectile()
 {
-	if (!ProjectileClassToUse || !WeaponOwner)
+	if (AGravityWellProjectile* Flying = FlyingProjectile.Get())
+	{
+		Flying->ActivateBlackHole();
+		FlyingProjectile.Reset();
+	}
+}
+
+AGravityWellProjectile* AGravityWellWeapon::SpawnGravityProjectile()
+{
+	if (!BlackHoleProjectileClass || !WeaponOwner)
 	{
 		return nullptr;
 	}
 
 	const FVector TargetLocation = WeaponOwner->GetWeaponTargetLocation();
-	AShooterProjectile* SpawnedProjectile = SpawnProjectileOfClass(TargetLocation, ProjectileClassToUse);
+	AShooterProjectile* SpawnedProjectile = SpawnProjectileOfClass(TargetLocation, BlackHoleProjectileClass);
 	if (AGravityWellProjectile* GravityProjectile = Cast<AGravityWellProjectile>(SpawnedProjectile))
 	{
-		BindProjectileDelegates(GravityProjectile, bIsBlackHole);
+		BindProjectileDelegates(GravityProjectile);
 		return GravityProjectile;
 	}
 
 	return nullptr;
 }
 
-void AGravityWellWeapon::BindProjectileDelegates(AGravityWellProjectile* Projectile, bool bIsBlackHole)
+void AGravityWellWeapon::BindProjectileDelegates(AGravityWellProjectile* Projectile)
 {
 	if (!Projectile)
 	{
 		return;
 	}
 
-	if (bIsBlackHole)
+	Projectile->OnBlackHoleActivated.AddUObject(this, &AGravityWellWeapon::HandleProjectileActivated);
+	Projectile->OnBlackHoleDeactivated.AddUObject(this, &AGravityWellWeapon::HandleProjectileDeactivated);
+	Projectile->OnDestroyed.AddDynamic(this, &AGravityWellWeapon::HandleProjectileDestroyed);
+}
+
+void AGravityWellWeapon::HandleProjectileDestroyed(AActor* DestroyedActor)
+{
+	if (AGravityWellProjectile* Projectile = Cast<AGravityWellProjectile>(DestroyedActor))
 	{
-		Projectile->OnBlackHoleActivated.AddUObject(this, &AGravityWellWeapon::HandleBlackProjectileActivated);
-		Projectile->OnBlackHoleDeactivated.AddUObject(this, &AGravityWellWeapon::HandleBlackProjectileDeactivated);
-		Projectile->OnDestroyed.AddDynamic(this, &AGravityWellWeapon::OnBlackProjectileDestroyed);
-	}
-	else
-	{
-		Projectile->OnBlackHoleActivated.AddUObject(this, &AGravityWellWeapon::HandleWhiteProjectileActivated);
-		Projectile->OnBlackHoleDeactivated.AddUObject(this, &AGravityWellWeapon::HandleWhiteProjectileDeactivated);
-		Projectile->OnDestroyed.AddDynamic(this, &AGravityWellWeapon::OnWhiteProjectileDestroyed);
+		if (FlyingProjectile.Get() == Projectile)
+		{
+			FlyingProjectile.Reset();
+		}
+
+		if (ActiveHoleProjectile.Get() == Projectile)
+		{
+			ActiveHoleProjectile.Reset();
+		}
 	}
 }
 
-void AGravityWellWeapon::ClearProjectilePointers(AGravityWellProjectile* Projectile, bool bIsBlackHole)
+void AGravityWellWeapon::HandleProjectileActivated(AGravityWellProjectile* Projectile)
 {
 	if (!Projectile)
 	{
 		return;
 	}
 
-	if (bIsBlackHole)
+	if (AGravityWellProjectile* ExistingActive = ActiveHoleProjectile.Get())
 	{
-		if (PendingBlackProjectile.Get() == Projectile)
+		if (ExistingActive != Projectile && ExistingActive->IsBlackHoleActive())
 		{
-			PendingBlackProjectile.Reset();
-		}
-
-		if (ActiveBlackProjectile.Get() == Projectile)
-		{
-			ActiveBlackProjectile.Reset();
+			ExistingActive->DeactivateBlackHole();
 		}
 	}
-	else
-	{
-		if (PendingWhiteProjectile.Get() == Projectile)
-		{
-			PendingWhiteProjectile.Reset();
-		}
 
-		if (ActiveWhiteProjectile.Get() == Projectile)
-		{
-			ActiveWhiteProjectile.Reset();
-		}
+	ActiveHoleProjectile = Projectile;
+
+	if (FlyingProjectile.Get() == Projectile)
+	{
+		FlyingProjectile.Reset();
 	}
 }
 
-void AGravityWellWeapon::OnBlackProjectileDestroyed(AActor* DestroyedActor)
+void AGravityWellWeapon::HandleProjectileDeactivated(AGravityWellProjectile* Projectile)
 {
-	if (AGravityWellProjectile* Projectile = Cast<AGravityWellProjectile>(DestroyedActor))
+	if (ActiveHoleProjectile.Get() == Projectile)
 	{
-		ClearProjectilePointers(Projectile, true);
+		ActiveHoleProjectile.Reset();
 	}
-}
-
-void AGravityWellWeapon::OnWhiteProjectileDestroyed(AActor* DestroyedActor)
-{
-	if (AGravityWellProjectile* Projectile = Cast<AGravityWellProjectile>(DestroyedActor))
-	{
-		ClearProjectilePointers(Projectile, false);
-	}
-}
-
-void AGravityWellWeapon::HandleBlackProjectileActivated(AGravityWellProjectile* Projectile)
-{
-	ActiveBlackProjectile = Projectile;
-	PendingBlackProjectile.Reset();
-}
-
-void AGravityWellWeapon::HandleBlackProjectileDeactivated(AGravityWellProjectile* Projectile)
-{
-	ClearProjectilePointers(Projectile, true);
-}
-
-void AGravityWellWeapon::HandleWhiteProjectileActivated(AGravityWellProjectile* Projectile)
-{
-	ActiveWhiteProjectile = Projectile;
-	PendingWhiteProjectile.Reset();
-}
-
-void AGravityWellWeapon::HandleWhiteProjectileDeactivated(AGravityWellProjectile* Projectile)
-{
-	ClearProjectilePointers(Projectile, false);
 }
