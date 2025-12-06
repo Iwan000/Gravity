@@ -1,5 +1,7 @@
 # Gravity Well Tuning
 
+> Please minimize unnecessary changes, as we ultimately need level consistency.
+
 This project ships two gravity-well bullets (black- and white-hole) you can tune directly in Blueprint. The main numbers live in each bullet Blueprint under the **Gravity Well Numerical** section of the Details panel.
 
 ## Change strength and radius in the bullet Blueprints
