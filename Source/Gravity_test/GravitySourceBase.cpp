@@ -5,7 +5,9 @@
 #include "Components/ShapeComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/PrimitiveComponent.h"
+#include "Engine/OverlapResult.h"
 #include "Engine/World.h"
+#include "Engine/EngineTypes.h"
 
 AGravitySourceBase::AGravitySourceBase()
 {
@@ -70,6 +72,8 @@ void AGravitySourceBase::Tick(float DeltaTime)
 		return;
 	}
 
+	UpdatePhysicsReceiversFromQuery();
+
 	const uint32 TypeMask = ForceTypeToMask(SourceType);
 
 	for (auto It = ReceiversInRange.CreateIterator(); It; ++It)
@@ -128,6 +132,53 @@ void AGravitySourceBase::Tick(float DeltaTime)
 	}
 }
 
+void AGravitySourceBase::UpdatePhysicsReceiversFromQuery()
+{
+	ReceiversInRange.Reset();
+
+	UWorld* World = GetWorld();
+	if (!World || !RangeCollision)
+	{
+		return;
+	}
+
+	float QueryRadius = 0.0f;
+	if (const USphereComponent* SphereComponent = Cast<USphereComponent>(RangeCollision))
+	{
+		QueryRadius = SphereComponent->GetScaledSphereRadius();
+	}
+	else
+	{
+		QueryRadius = RangeCollision->Bounds.SphereRadius;
+	}
+
+	if (QueryRadius <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	TArray<FOverlapResult> Overlaps;
+	FCollisionObjectQueryParams ObjectQueryParams;
+	ObjectQueryParams.AddObjectTypesToQuery(ECC_PhysicsBody);
+
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(GravitySourceOverlap), false, this);
+
+	const FVector QueryLocation = RangeCollision->GetComponentLocation();
+	const FCollisionShape QueryShape = FCollisionShape::MakeSphere(QueryRadius);
+	World->OverlapMultiByObjectType(Overlaps, QueryLocation, FQuat::Identity, ObjectQueryParams, QueryShape, QueryParams);
+
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		UPrimitiveComponent* OverlapComp = Overlap.Component.Get();
+		if (!IsValidReceiver(OverlapComp))
+		{
+			continue;
+		}
+
+		ReceiversInRange.Add(OverlapComp);
+	}
+}
+
 bool AGravitySourceBase::IsValidReceiver(UPrimitiveComponent* Comp) const
 {
 	if (!IsValid(Comp))
@@ -155,19 +206,13 @@ bool AGravitySourceBase::IsSpecialReceiver(AActor* Actor) const
 
 void AGravitySourceBase::HandleBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
 {
-	UE_UNUSED(OverlappedComponent);
-	UE_UNUSED(OtherBodyIndex);
-	UE_UNUSED(bFromSweep);
-	UE_UNUSED(SweepResult);
+	(void)OverlappedComponent;
+	(void)OtherBodyIndex;
+	(void)bFromSweep;
+	(void)SweepResult;
 
 	if (!OtherActor || OtherActor == this || !OtherComp)
 	{
-		return;
-	}
-
-	if (IsValidReceiver(OtherComp))
-	{
-		ReceiversInRange.Add(OtherComp);
 		return;
 	}
 
@@ -179,15 +224,13 @@ void AGravitySourceBase::HandleBeginOverlap(UPrimitiveComponent* OverlappedCompo
 
 void AGravitySourceBase::HandleEndOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex)
 {
-	UE_UNUSED(OverlappedComponent);
-	UE_UNUSED(OtherBodyIndex);
+	(void)OverlappedComponent;
+	(void)OtherBodyIndex;
 
 	if (!OtherActor || OtherActor == this || !OtherComp)
 	{
 		return;
 	}
-
-	ReceiversInRange.Remove(OtherComp);
 
 	if (IsSpecialReceiver(OtherActor) && RangeCollision)
 	{

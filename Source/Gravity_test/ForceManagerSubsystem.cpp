@@ -12,6 +12,7 @@ UForceManagerSubsystem::UForceManagerSubsystem()
 void UForceManagerSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
+	UE_LOG(LogTemp, Warning, TEXT("✅ ForceManagerSubsystem Initialized!"));
 }
 
 void UForceManagerSubsystem::Deinitialize()
@@ -60,6 +61,7 @@ void UForceManagerSubsystem::RegisterSource(AGravitySourceBase* Source)
 	}
 
 	Sources.AddUnique(Source);
+	UE_LOG(LogTemp, Warning, TEXT("✅ Source Registered: %s"), *Source->GetName());
 }
 
 void UForceManagerSubsystem::UnregisterSource(AGravitySourceBase* Source)
@@ -74,8 +76,8 @@ void UForceManagerSubsystem::UnregisterSource(AGravitySourceBase* Source)
 
 void UForceManagerSubsystem::AddContribution(UPrimitiveComponent* ReceiverComp, const FVector& Accel, uint32 TypeMask, FName DebugName)
 {
-	UE_UNUSED(TypeMask);
-	UE_UNUSED(DebugName);
+	(void)TypeMask;
+	(void)DebugName;
 
 	if (!IsValid(ReceiverComp) || !ReceiverComp->IsSimulatingPhysics())
 	{
@@ -90,12 +92,13 @@ void UForceManagerSubsystem::AddContribution(UPrimitiveComponent* ReceiverComp, 
 	}
 
 	Accumulator.SumAccel += Accel;
+	UE_LOG(LogTemp, Warning, TEXT("✅ AddContribution: Receiver=%s, Accel=%s"), *ReceiverComp->GetName(), *Accel.ToString());
 }
 
 void UForceManagerSubsystem::AddContributionActor(AActor* ReceiverActor, const FVector& Accel, uint32 TypeMask, FName DebugName)
 {
-	UE_UNUSED(TypeMask);
-	UE_UNUSED(DebugName);
+	(void)TypeMask;
+	(void)DebugName;
 
 	if (!IsValid(ReceiverActor))
 	{
@@ -119,7 +122,7 @@ const FReceiverForceSettings& UForceManagerSubsystem::GetDefaultSettings() const
 
 FVector UForceManagerSubsystem::ResolveFinalAccel(const FForceAccumulator& Accumulator, float DeltaTime) const
 {
-	UE_UNUSED(DeltaTime);
+	(void)DeltaTime;
 
 	FVector FinalAccel = Accumulator.SumAccel;
 

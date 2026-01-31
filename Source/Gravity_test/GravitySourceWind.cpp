@@ -9,8 +9,8 @@ AGravitySourceWind::AGravitySourceWind()
 
 FVector AGravitySourceWind::CalculateContribution(UPrimitiveComponent* ReceiverComp, float DeltaTime) const
 {
-	UE_UNUSED(ReceiverComp);
-	UE_UNUSED(DeltaTime);
+	(void)ReceiverComp;
+	(void)DeltaTime;
 
 	const FVector Direction = bUseActorForward ? GetActorForwardVector() : WindDirection;
 	const FVector UnitDirection = Direction.GetSafeNormal();

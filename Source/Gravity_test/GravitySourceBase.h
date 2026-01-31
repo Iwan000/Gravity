@@ -25,6 +25,7 @@ protected:
 
 	virtual FVector CalculateContribution(UPrimitiveComponent* ReceiverComp, float DeltaTime) const PURE_VIRTUAL(AGravitySourceBase::CalculateContribution, return FVector::ZeroVector;);
 
+	void UpdatePhysicsReceiversFromQuery();
 	bool IsValidReceiver(UPrimitiveComponent* Comp) const;
 	bool IsSpecialReceiver(AActor* Actor) const;
 

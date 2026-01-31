@@ -9,7 +9,7 @@ AGravitySourceBlackHole::AGravitySourceBlackHole()
 
 FVector AGravitySourceBlackHole::CalculateContribution(UPrimitiveComponent* ReceiverComp, float DeltaTime) const
 {
-	UE_UNUSED(DeltaTime);
+	(void)DeltaTime;
 
 	if (!IsValid(ReceiverComp))
 	{

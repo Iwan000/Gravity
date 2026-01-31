@@ -9,7 +9,7 @@ AGravitySourceWhiteHole::AGravitySourceWhiteHole()
 
 FVector AGravitySourceWhiteHole::CalculateContribution(UPrimitiveComponent* ReceiverComp, float DeltaTime) const
 {
-	UE_UNUSED(DeltaTime);
+	(void)DeltaTime;
 
 	if (!IsValid(ReceiverComp))
 	{

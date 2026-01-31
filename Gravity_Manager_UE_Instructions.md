@@ -42,7 +42,6 @@ Any `UPrimitiveComponent` with **Simulate Physics = true** will be affected auto
 Make sure:
 
 - The component’s collision is enabled.
-- It can overlap the source’s `RangeCollision` (Sphere uses `OverlapAllDynamic`).
 
 Drop a physics cube into a source’s range to verify it reacts.
 
