@@ -11,14 +11,31 @@
 
 ---
 
+## 0. V1 关键决定（已确认）
+
+> 用于替代所有口头确认，确保文档可独立执行。
+
+- **单位**：所有 Strength/Accel 统一用 **cm/s²**（UE 默认单位），不做 m/s² UI。
+- **Manager 形态**：采用 `UForceManagerSubsystem`（`UTickableWorldSubsystem`），**TG_PrePhysics** 运行。
+- **Tick 顺序**：V1 **不做复杂 prereq**（保持最简）；若将来出现顺序问题，再升级为自定义 `FTickFunction` + Prerequisite。
+- **Receiver 路径**：V1 只有两条清晰路径  
+  1) **默认接收**：仅 `Simulate Physics = true` 的 `UPrimitiveComponent`（物理 Apply）  
+  2) **特殊接收**：Actor 级 `UForceConsumerInterface`（ConsumeOnly 回调），**不**把非模拟组件当物理 Receiver  
+- **Force 类型**：仅 `BlackHole / WhiteHole / Wind / Other`（枚举 + bitmask）。
+- **Override / Priority**：V1 **不使用**（保留字段可选，但逻辑不启用）。
+- **网络**：单机，无复制。
+- **世界重力接管**：Phase 2 再做。
+
+---
+
 ## 1. 核心原则（Why 这样做）
 
 ### 1.1 统一思路：两阶段流水线
 系统按物理步（Physics Tick）走一个固定流水线：
 
-1) **Discover（发现受力对象）**：由 Source 的 Collision Overlap 维护"范围内 Receivers"
+1) **Discover（发现受力对象）**：由 Source 的 Collision Overlap 维护"范围内 Receivers"（物理组件 + 实现接口的 Actor）
 2) **Gather（收集贡献）**：Source 计算每个 Receiver 的 contribution（建议用"加速度 accel"），提交给 Manager 累加
-3) **Resolve（合力裁决 / Goalkeeper）**：Manager 对每个本帧被触达的 Receiver 只执行一次非线性规则（deadzone/clamp/过滤/优先级等）
+3) **Resolve（合力裁决 / Goalkeeper）**：Manager 对每个本帧被触达的 Receiver 只执行一次非线性规则（V1 仅 deadzone/clamp）
 4) **Apply（一次施加）**：对普通物理对象直接 AddForce / AddAcceleration；对特殊对象走自定义接口
 
 > 为什么必须把"裁剪/阈值/非线性规则"放到 Resolve？  
@@ -47,7 +64,7 @@ Sources 只负责在本 Tick 的前半段不断 AddContribution（累加器保�
   - **普通 Receiver：零绑定**（不需要你写 Receiver 类）  
     - 只要是 `Simulate Physics = true` 的 `UPrimitiveComponent`，就能自动接收力  
   - **特殊 Receiver：低成本扩展**  
-    - 大量特殊 Receiver 建议通过 "轻量组件 + 接口" 的组合解决（而不是每个都写一个复杂派生类）
+    - V1 仅使用 **Actor 接口**（`UForceConsumerInterface`），避免复杂派生类
 
 ---
 
@@ -57,15 +74,24 @@ Sources 只负责在本 Tick 的前半段不断 AddContribution（累加器保�
 内部统一使用加速度向量（方向+大小）：
 
 ```cpp
+UENUM()
+enum class EForceType : uint8
+{
+    BlackHole,
+    WhiteHole,
+    Wind,
+    Other
+};
+
 struct FForceContribution
 {
-    FVector Accel;            // 本次贡献（m/s^2）
-    int32 Priority = 0;        // 可选：优先级（数值大更高）
-    bool bOverride = false;    // 可选：是否覆盖型（强制替换合力）
-    uint32 TypeMask = 0;       // 可选：力类型位掩码（黑洞/白洞/风/自定义...）
+    FVector Accel;            // 本次贡献（cm/s^2）
+    uint32 TypeMask = 0;       // 可选：力类型位掩码（BlackHole/WhiteHole/Wind/Other）
     FName DebugName;           // 可选：调试来源名
 };
 ```
+
+> V1 不使用 override/priority，后期如需可再加入字段。
 
 > 统一用 accel 的原因：
 > - 玩法更可控（你可以决定是否受质量影响）
@@ -79,20 +105,15 @@ struct FForceAccumulator
     FVector SumAccel = FVector::ZeroVector;
     bool bTouched = false;
 
-    // 可选：override / priority
-    bool bHasOverride = false;
-    int32 MaxPrioritySeen = MIN_int32;
-    FVector OverrideAccel = FVector::ZeroVector;
-
     // 可选：为特殊 Receiver 预留 breakdown（按需开启）
     // FVector PerTypeSum[NUM_TYPES];
 };
 ```
 
-### 3.3 ReceiverSettings：让"特殊 Receiver 很多"也不痛
+### 3.3 ReceiverSettings：V1 仅全局默认
 
-你说特殊 Receiver "很多"，所以我们需要一个**低维护成本**的方式：
-不让每个特殊对象写一堆方法，而是尽量用数据驱动。
+V1 只使用 **Manager 的 DefaultSettings**（deadzone / clamp / mass mode）。  
+“每个 Receiver 自定义设置 / 组件化数据驱动”留到 V2 再引入。
 
 ```cpp
 UENUM()
@@ -103,54 +124,31 @@ enum class EMassMode : uint8
     Hybrid         // 预留：可选曲线/指数（后期再实现）
 };
 
-UENUM()
-enum class EReceiverMode : uint8
-{
-    DefaultPhysicsApply,  // 普通物体：Resolve 后直接 Apply
-    IgnoreAllForces,      // 不受 Source 力
-    ConsumeOnly,          // 不施加物理力，但把合力发给自定义事件
-    ConsumeAndApply       // 既派发事件，也施加（少数情况）
-};
-
 struct FReceiverForceSettings
 {
     float MinAccel = 0.0f;        // deadzone（|a| < MinAccel -> 0）
     float MaxAccel = 999999.0f;   // clamp
-    uint32 AcceptTypeMask = 0xFFFFFFFF; // 可选：过滤类型
     EMassMode MassMode = EMassMode::Physical;
-    EReceiverMode ReceiverMode = EReceiverMode::DefaultPhysicsApply;
 
     // 可选：平滑/阻尼（让手感更稳）
     float Damping = 0.0f;
-
-    // 可选：是否请求 breakdown（如果很多特殊 receiver 需要分解）
-    bool bRequestBreakdown = false;
 };
 ```
 
-实现方式：给特殊对象（Actor 或 Component）挂一个轻量组件 `UReceiverSettingsComponent` 只存这些参数。
-普通对象不挂任何组件，自动用 Manager 的 DefaultSettings。
+V1：仅使用 **Manager 的 DefaultSettings**（无 per-receiver 组件）。  
+特殊 Receiver 走 **Actor 接口 ConsumeOnly**（见 §7）。
 
 ---
 
 ## 4. Unreal Engine 落地方案（How in UE）
 
-### 4.1 Manager 放在哪里（推荐两种，选一种落地）
+### 4.1 Manager 放在哪里（V1 选择）
 
-**推荐 A：World Subsystem（更"框架化"）**
+**V1 选用：World Subsystem（最省关卡配置）**
 
-* `UWorldSubsystem` 或 `UTickableWorldSubsystem` 实现 Manager
-* 好处：全关卡通用、无需关卡摆放
-* 代价：对新开发者稍微抽象一些
-
-**推荐 B：Level 里的单例 Actor（更直观）** ✅（新开发者更容易实现）
-
-* 放一个 `AForceManagerActor` 到关卡
-* Sources 在 `BeginPlay` 里 `GetActorOfClass` 找到它并注册
-* 好处：直观、易调试、易在 Editor 看见
-* 代价：每关卡要放一个（可以做成 GameMode 自动生成）
-
-> 为了让"新开发者照文档就能做"，建议先用 **B**，后续想升级为 Subsystem 再迁移。
+* `UForceManagerSubsystem : UTickableWorldSubsystem`
+* **全关卡通用、无需关卡摆放**
+* 可选：做一个 Debug Actor 仅用于可视化（不参与逻辑）
 
 ---
 
@@ -168,11 +166,12 @@ struct FReceiverForceSettings
 **成员变量：**
 
 * `FName SourceId`
-* `FName SourceType`
+* `EForceType SourceType`（枚举：BlackHole / WhiteHole / Wind / Other）
 * `float Strength`
 * `UShapeComponent* RangeCollision`（Sphere/Box 等）
 * `TSet<TWeakObjectPtr<UPrimitiveComponent>> ReceiversInRange`
-* `TWeakObjectPtr<AForceManagerActor> ManagerRef`
+* `TSet<TWeakObjectPtr<AActor>> SpecialReceiversInRange`（实现接口的 Actor）
+* `TWeakObjectPtr<UForceManagerSubsystem> ManagerRef`
 
 **关键方法：**
 
@@ -180,20 +179,22 @@ struct FReceiverForceSettings
 * `bool IsValidReceiver(UPrimitiveComponent* Comp) const;`
   * `Comp != nullptr`
   * `Comp->IsSimulatingPhysics() == true`
-  * 如果存在 settings 且 `ReceiverMode == IgnoreAllForces`，则 false
+* `bool IsSpecialReceiver(AActor* Actor) const;`（Actor 实现 `UForceConsumerInterface`）
 
 **事件与生命周期：**
 
 * `BeginPlay()`：
   * 绑定 overlap：`OnComponentBeginOverlap`, `OnComponentEndOverlap`
-  * 找到 Manager 并 `RegisterSource(this)`
+  * `GetWorld()->GetSubsystem<UForceManagerSubsystem>()` 并 `RegisterSource(this)`
 * `EndPlay()` / `Destroyed()`：
   * `UnregisterSource(this)`
   * 清理 ReceiversInRange（weak ptr 可省略强制清理）
 * `OnBeginOverlap(OtherComp)`：
   * 若 `IsValidReceiver(OtherComp)` 则加入 `ReceiversInRange`
+  * 否则若 `IsSpecialReceiver(OtherComp->GetOwner())` 则加入 `SpecialReceiversInRange`
 * `OnEndOverlap(OtherComp)`：
   * 从 `ReceiversInRange` 移除
+  * 从 `SpecialReceiversInRange` 移除
 
 **Tick（建议 TG_PrePhysics）**：
 
@@ -201,6 +202,10 @@ struct FReceiverForceSettings
   * 若 weak ptr 失效，剔除
   * `accel = CalculateContribution(receiver, dt)`
   * `Manager->AddContribution(receiver, accel, TypeMask, ...)`
+* 遍历 `SpecialReceiversInRange`：
+  * 若 weak ptr 失效，剔除
+  * `accel = CalculateContribution(ActorRootPrimitiveComp, dt)`（即使不模拟也可用于取位置；无则用 Actor 位置）
+  * `Manager->AddContribution(Actor, accel, TypeMask, ...)`
 
 > 你问"每算完一个 receiver 就发 manager，还是全部算完再统一发？"
 > **默认建议：每算完一个就 AddContribution**（即时累加）。
@@ -229,11 +234,11 @@ struct FReceiverForceSettings
 * 强度可按距离衰减或常量
 
 > 注意：把"上限/爆炸保护"放在 Source 的 CalculateContribution 里是合理的（这是 Source 自身的物理定义）。
-> 把"合力 deadzone / 合力 max clamp / 类型过滤"放在 Manager Resolve（这是系统规则）。
+> 把"合力 deadzone / 合力 max clamp"放在 Manager Resolve（这是系统规则）。
 
 ---
 
-### 5.3 `AForceManagerActor`（Manager）
+### 5.3 `UForceManagerSubsystem`（Manager）
 
 **职责**：收集贡献、Goalkeeper、Apply（一次性）。
 
@@ -242,7 +247,9 @@ struct FReceiverForceSettings
 * `TArray<TWeakObjectPtr<AGravitySourceBase>> Sources`
 * `TMap<TWeakObjectPtr<UPrimitiveComponent>, FForceAccumulator> AccMap`
 * `TArray<TWeakObjectPtr<UPrimitiveComponent>> TouchedReceivers`
-* `FReceiverForceSettings DefaultSettings`
+* `TMap<TWeakObjectPtr<AActor>, FForceAccumulator> ActorAccMap`（特殊 Receiver）
+* `TArray<TWeakObjectPtr<AActor>> TouchedActors`
+* `FReceiverForceSettings DefaultSettings`（全局）
 
 **核心方法：**
 
@@ -258,19 +265,20 @@ struct FReceiverForceSettings
   * 标记 bTouched
   * push 到 `TouchedReceivers`
 * 累加（只做线性统计，不做 clamp）：
-  * 若 bOverride：记录 max priority 的 override
-  * 否则 `SumAccel += Accel`
+  * `SumAccel += Accel`
+
+#### `AddContribution(ReceiverActor, ContributionMeta...)`
+
+* 逻辑同上，但写入 `ActorAccMap / TouchedActors`
 
 #### `Tick（TG_PrePhysics） -> ResolveAndApply(Dt)`
 
 * 遍历 `TouchedReceivers`：
-  * 获取 receiver settings（若没有组件则用 DefaultSettings）
-  * 根据 settings 做 Resolve（goalkeeper）
-  * 根据 ReceiverMode：
-    * DefaultPhysicsApply：Apply 到物理
-    * ConsumeOnly：派发事件，不 Apply
-    * ConsumeAndApply：两者都做
-    * IgnoreAllForces：理论上不会进入 touched，但这里也可直接 skip
+  * 使用 `DefaultSettings` 做 Resolve（goalkeeper）
+  * **仅对 Simulating Physics 的 PrimitiveComponent Apply**
+* 遍历 `TouchedActors`：
+  * 使用 `DefaultSettings` 做 Resolve
+  * 若 Actor 实现 `UForceConsumerInterface` → 调用 `OnForceResolved`（ConsumeOnly）
 * 帧末清理：
   * 对 touched receivers 从 AccMap 移除（或重置）
   * 清空 touched list
@@ -286,11 +294,8 @@ FVector ResolveFinalAccel(const FForceAccumulator& Acc, const FReceiverForceSett
 {
     FVector A = FVector::ZeroVector;
 
-    // 1) 选择 override 或 sum
-    if (Acc.bHasOverride)
-        A = Acc.OverrideAccel;
-    else
-        A = Acc.SumAccel;
+    // 1) 直接使用 Sum（V1 不做 override/priority）
+    A = Acc.SumAccel;
 
     // 2) deadzone（用 length squared 避免 sqrt）
     if (A.SizeSquared() < S.MinAccel * S.MinAccel)
@@ -317,7 +322,7 @@ FVector ResolveFinalAccel(const FForceAccumulator& Acc, const FReceiverForceSett
 你说质量可能会带来一定影响，但目前不确定具体玩法。建议：
 
 * **默认**：`MassMode = Physical`（F = m * a）
-* 对特殊对象可改成 `AccelChange`（忽略质量）做对比测试
+* 对需要忽略质量的**物理对象**可改成 `AccelChange` 做对比测试
 
 Apply 伪代码：
 
@@ -359,23 +364,13 @@ void ApplyToPhysics(UPrimitiveComponent* Comp, const FVector& FinalAccel, const 
 * 每个特殊对象都写一个复杂派生类
 * 每个对象都手动绑定很多函数
 
-✅ 推荐方案：**数据组件 + 接口（可蓝图实现）**
+✅ V1 仅使用 **Actor 接口（可蓝图实现）**
 
-### 7.1 `UReceiverSettingsComponent`（轻量数据组件）
-
-* 存 `FReceiverForceSettings`
-* 可选：暴露 `bRequestBreakdown`（如果特殊对象需要来源分解）
-
-开发者流程：
-
-* 普通物体：无需组件
-* 特殊物体：加一个组件并调整枚举/阈值即可
-
-### 7.2 `UForceConsumerInterface`（特殊逻辑接口）
+### 7.1 `UForceConsumerInterface`（特殊逻辑接口）
 
 让特殊对象（Actor）可以用蓝图实现回调，例如：
 
-* `OnForceResolved(FVector FinalAccel, float Dt, OptionalBreakdownData)`
+* `OnForceResolved(FVector FinalAccel, float Dt)`
 * 特殊对象可以：
   * 播放动画
   * 触发机关
@@ -384,13 +379,10 @@ void ApplyToPhysics(UPrimitiveComponent* Comp, const FVector& FinalAccel, const 
 
 Manager 在 Resolve 后：
 
-* 如果 `ReceiverMode == ConsumeOnly / ConsumeAndApply`：
-  * 调用接口回调
-* 再根据 mode 决定是否 Apply
+* 只要 Actor 实现接口 → 调用回调（ConsumeOnly）
 
 > 这样"特殊对象很多"也不会麻烦：
-> - 大部分只需要改设置（组件）
-> - 真正要自定义行为的才实现接口（蓝图即可）
+> - 只需实现接口（蓝图即可）
 
 ---
 
@@ -403,24 +395,12 @@ Manager 在 Resolve 后：
 ### 8.1 推荐 TickGroup
 
 * `AGravitySourceBase`：`TG_PrePhysics`
-* `AForceManagerActor`：`TG_PrePhysics`，并且 **在 Sources 之后执行**
+* `UForceManagerSubsystem`：`TG_PrePhysics`
 
-### 8.2 如何保证 Manager 在 Sources 之后
+### 8.2 Tick 顺序（V1 说明）
 
-两种方式（二选一）：
-
-**方式 A：Tick Prerequisite（推荐）**
-
-* Source 在 BeginPlay 时：
-  * `Manager->AddTickPrerequisiteActor(this)`（或 Manager 依赖 Source）
-* 让 Manager tick 发生在所有 Source tick 后
-
-**方式 B：Manager 放到更晚的 TickGroup**
-
-* Source：PrePhysics
-* Manager：DuringPhysics / PostPhysics（谨慎）
-
-> 不推荐 DuringPhysics 直接 AddForce（可能不安全/不符合预期），所以还是推荐方式 A。
+V1 不做 tick prerequisite（保持最简）。  
+若出现顺序问题，再升级为 **自定义 TickFunction + Prerequisite**。
 
 ---
 
@@ -475,7 +455,7 @@ Manager 在 Resolve 后：
 ### 11.2 可能的后期优化（按需）
 
 * Source 批量提交：`AddContributionsBatch(TArray<...>)`（减少蓝图调用开销）
-* 可选 breakdown 只对 bRequestBreakdown 的 receiver 记录
+* 可选 breakdown（V2 以后再加）
 * 需要更大规模时再引入空间哈希/网格索引（当前不必要）
 
 ---
@@ -486,28 +466,28 @@ Manager 在 Resolve 后：
 
 ### Step 1：创建 Manager
 
-1. 新建 `AForceManagerActor`（或 Subsystem）
+1. 新建 `UForceManagerSubsystem : UTickableWorldSubsystem`
 2. 开启 Tick，设为 `TG_PrePhysics`
 3. 实现：
    * `RegisterSource/UnregisterSource`
    * `AddContribution`
+   * `AddContributionActor`
    * `ResolveAndApply`
    * touched 清理逻辑
 4. 加入 DefaultSettings（MinAccel/MaxAccel/MassMode 等）
 
-### Step 2：创建 ReceiverSettingsComponent + ForceConsumerInterface
+### Step 2：创建 ForceConsumerInterface
 
-1. `UReceiverSettingsComponent`：只存 `FReceiverForceSettings`
-2. `UForceConsumerInterface`：定义 `OnForceResolved(FVector, float)` 等回调
-3. 在 Manager Resolve 阶段读取组件与接口，走对应模式
+1. `UForceConsumerInterface`：定义 `OnForceResolved(FVector, float)` 等回调
+2. Manager 在 Resolve 后调用接口（ConsumeOnly）
 
 ### Step 3：创建 Source 基类
 
 1. `AGravitySourceBase`：
    * 一个 CollisionComponent（Sphere/Box）
-   * Overlap enter/exit 维护 `ReceiversInRange`
+   * Overlap enter/exit 维护 `ReceiversInRange` 和 `SpecialReceiversInRange`
 2. BeginPlay 注册到 Manager
-3. Tick 遍历 `ReceiversInRange`，计算 contribution 并 AddContribution
+3. Tick 遍历两类 receiver，计算 contribution 并 AddContribution
 
 ### Step 4：实现第一个具体 Source（黑洞）
 
@@ -523,9 +503,7 @@ Manager 在 Resolve 后：
 
 ### Step 6：实现特殊 receiver 示例（验证扩展路径）
 
-* 例 A：IgnoreAllForces 的物体（仍模拟物理但不受 source 力）
-* 例 B：ConsumeOnly 的机关（不受物理力，但能收到合力触发动画/事件）
-* 例 C：ConsumeAndApply 的对象（既动又触发效果）
+* 例 A：ConsumeOnly 的角色/机关（不受物理力，但能收到合力触发动画/事件）
 
 ### Step 7：Debug 工具
 
@@ -539,8 +517,8 @@ Manager 在 Resolve 后：
 1. **把裁剪放在 Gather** → 结果依赖遍历顺序，手感漂移
    ✅ 只在 Resolve 做 clamp/deadzone
 
-2. **Receiver 用 Actor 而不是 PrimitiveComponent** → 施力对象不对，质量/物理体不准确
-   ✅ 用 `UPrimitiveComponent*` 做 receiver 句柄
+2. **物理 Apply 用 Actor 句柄** → 施力对象不对，质量/物理体不准确
+   ✅ 物理路径使用 `UPrimitiveComponent*`；Actor 仅用于 ConsumeOnly
 
 3. **Manager 完全不 Tick，依赖 count 门闩** → 时序 bug、Source 0 receiver 时 apply 不发生
    ✅ Manager 每个 PrePhysics Tick 固定 Resolve+Apply
